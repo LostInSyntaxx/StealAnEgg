@@ -1,30 +1,5 @@
---[[
-    ═══════════════════════════════════════════════════════════════════════════════
-    EGGS ESP MENU & AUTOFARM PRO — v2.2.0 (ESP Enhancement Release)
-    SIDEBAR TABS • NESTED CARD ARCHITECTURE • STRICT DARK THEME
-    ═══════════════════════════════════════════════════════════════════════════════
-
-    CHANGELOG v2.2.0:
-      • Added egg weight display (kg/g/lb) with 4-tier resolver
-      • Added distance unit toggle (studs/m/ft)
-      • Added compass bearing (N/NE/E/SE/S/SW/W/NW)
-      • Added ESP style modes (Fill / Outline / Both)
-      • Added max render distance slider (50-2000 studs)
-      • Added rare-only filter
-      • Added 3 billboard layout modes (Minimal / Compact / Detailed)
-      • Added rarity tier system with emoji prefix + tier coloring
-      • Added egg pin/lock (📌 button + right-click)
-      • Added sort-by-weight mode
-      • Added ESP Display Settings card
-      • All v2.1.0 bug fixes retained
-    ═══════════════════════════════════════════════════════════════════════════════
-]]
-
---==================================================
--- [1] COMPONENT: AppConfig
---==================================================
 local AppConfig = {
-    Version = "2.2.0",
+    Version = "2.1.0",
 
     ESPFillTransparency = 0.45,
     ESPOutlineTransparency = 0.1,
@@ -41,29 +16,8 @@ local AppConfig = {
     },
     ESPRareColor = Color3.fromRGB(255, 215, 0),
 
-    -- [v2.2.0] ESP Enhancement Tokens
-    ESPWeightUnit = "kg",
-    ESPDistanceUnit = "studs",
-    ESPESPStyle = "Both",
-    ESPMaxRenderDistance = 500,
-    ESPShowWeight = true,
-    ESPShowDistance = true,
-    ESPShowCompass = false,
-    ESPShowRarityTag = true,
-    ESPBillboardLayout = "Detailed",
-    ESPRareOnly = false,
-    ESPClickToLock = true,
-
-    RarityTiers = {
-        { keywords = { "secret", "titan" },             label = "SECRET",    color = Color3.fromRGB(255, 61, 87),   prefix = "🔥" },
-        { keywords = { "huge", "exclusive" },           label = "EXCLUSIVE", color = Color3.fromRGB(255, 215, 0),   prefix = "⭐" },
-        { keywords = { "mythic", "cherub" },            label = "MYTHIC",    color = Color3.fromRGB(220, 90, 255),  prefix = "💎" },
-        { keywords = { "golden", "diamond", "rainbow" }, label = "RARE",     color = Color3.fromRGB(0, 230, 118),   prefix = "✨" },
-        { keywords = { "dark", "celestial" },           label = "SPECIAL",   color = Color3.fromRGB(140, 100, 255), prefix = "🌙" },
-    },
-
     TPHeight = 3,
-    MovementSpeed = 500,
+    MovementSpeed = 350,
     HomeDepositWait = 1.3,
     AntiStuckThreshold = 2.2,
 
@@ -177,7 +131,6 @@ local StateStore = {
 
     movementMode = "AutoFarm",
     currentSearchQuery = "",
-    backpackSearchQuery = "",
     sortMode = "Name",
     tpKeybind = Enum.KeyCode.T,
 
@@ -202,20 +155,6 @@ local StateStore = {
     _sliderCounter = 0,
     windowMode = "PC",
     screenGui = nil,
-
-    -- [v2.2.0] ESP Enhancement State
-    espStyle = "Both",
-    espMaxRenderDistance = 500,
-    espWeightUnit = "kg",
-    espDistanceUnit = "studs",
-    espBillboardLayout = "Detailed",
-    espRareOnly = false,
-    espShowWeight = true,
-    espShowDistance = true,
-    espShowCompass = false,
-    espShowRarityTag = true,
-    pinnedEggs = setmetatable({}, { __mode = "k" }),
-    sortByWeight = false,
 }
 
 function StateStore.track(conn)
@@ -376,171 +315,6 @@ function Utils.resetVelocity(root)
         root.RotVelocity = Vector3.zero
     end)
 end
-
--- [v2.2.0] Weight extraction — 4-tier resolver
-function Utils.getEggWeight(egg)
-    if not egg then return nil end
-
-    -- 1. Direct attribute
-    local w = egg:GetAttribute("Weight") or egg:GetAttribute("weight") or egg:GetAttribute("Mass")
-    if type(w) == "number" and w > 0 then return w end
-
-    -- 2. Child value scan
-    for _, child in ipairs(egg:GetChildren()) do
-        if (child:IsA("NumberValue") or child:IsA("StringValue"))
-            and (child.Name:lower():find("weight") or child.Name:lower():find("mass")) then
-            local num = tonumber(child.Value)
-            if num and num > 0 then return num end
-        end
-    end
-
-    -- 3. Parse from name
-    local name = egg.Name
-    local num = name:match("(%d+%.?%d*)%s*kg")
-        or name:match("(%d+%.?%d*)%s*g")
-        or name:match("(%d+%.?%d*)%s*lb")
-    if num then
-        local n = tonumber(num)
-        if n then
-            if name:lower():find(num .. "g") and not name:lower():find(num .. "kg") then
-                return n / 1000
-            end
-            return n
-        end
-    end
-
-    -- 4. Deterministic hash fallback (0.5 – 45.5 kg)
-    local hash = 0
-    for i = 1, #egg.Name do
-        hash = (hash + string.byte(egg.Name, i) * (i * 7)) % 100000
-    end
-    return (hash % 4500) / 100 + 0.5
-end
-
-function Utils.formatWeight(kg, unit)
-    if not kg then return "?" end
-    unit = unit or StateStore.espWeightUnit or "kg"
-    if unit == "g" then
-        return string.format("%.0fg", kg * 1000)
-    elseif unit == "lb" then
-        return string.format("%.1flb", kg * 2.20462)
-    end
-    if kg < 1 then
-        return string.format("%.0fg", kg * 1000)
-    end
-    return string.format("%.1fkg", kg)
-end
-
-function Utils.formatDistance(studs, unit)
-    if studs == math.huge then return "?" end
-    unit = unit or StateStore.espDistanceUnit or "studs"
-    if unit == "m" then
-        return string.format("%.0fm", studs * 0.28)
-    elseif unit == "ft" then
-        return string.format("%.0fft", studs * 0.92)
-    end
-    return string.format("%dst", math.floor(studs + 0.5))
-end
-
-function Utils.getCompassBearing(fromPos, toPos)
-    if not fromPos or not toPos then return "" end
-    local dir = (toPos - fromPos)
-    local flat = Vector3.new(dir.X, 0, dir.Z)
-    if flat.Magnitude < 0.01 then return "" end
-    local angle = math.deg(math.atan2(flat.X, flat.Z))
-    local dirs = { "N", "NE", "E", "SE", "S", "SW", "W", "NW" }
-    local idx = math.floor(((angle + 22.5) % 360) / 45) + 1
-    return dirs[idx] or "N"
-end
-
-function Utils.getEggRarity(eggName)
-    local lower = eggName:lower()
-    for _, tier in ipairs(AppConfig.RarityTiers) do
-        for _, kw in ipairs(tier.keywords) do
-            if string.find(lower, kw, 1, true) then
-                return tier.label, tier.color, tier.prefix
-            end
-        end
-    end
-    return nil, nil, nil
-end
-
-function Utils.getBackpack()
-    local lp = ServiceManager.LocalPlayer
-    return (lp and lp:FindFirstChildOfClass("Backpack"))
-        or (lp and lp:FindFirstChild("Backpack"))
-end
-
-function Utils.getBackpackItems()
-    local items = {}
-    local backpack = Utils.getBackpack()
-    local char = Utils.getCharacter()
-    if char then
-        for _, child in ipairs(char:GetChildren()) do
-            if child:IsA("Tool") then
-                table.insert(items, {
-                    instance = child, name = child.Name, className = child.ClassName,
-                    isEquipped = true, textureId = child.TextureId or "", toolTip = child.ToolTip or ""
-                })
-            end
-        end
-    end
-    if backpack then
-        for _, child in ipairs(backpack:GetChildren()) do
-            if child:IsA("Tool") or child:IsA("Instance") then
-                table.insert(items, {
-                    instance = child, name = child.Name, className = child.ClassName,
-                    isEquipped = false,
-                    textureId = child:IsA("Tool") and child.TextureId or "",
-                    toolTip = child:IsA("Tool") and child.ToolTip or ""
-                })
-            end
-        end
-    end
-    return items
-end
-
-function Utils.printBackpack()
-    local items = Utils.getBackpackItems()
-    print("═══════════════════════════════════════════════════════════════")
-    print(string.format("🎒 [BACKPACK VIEWER] Total Items: %d", #items))
-    print("═══════════════════════════════════════════════════════════════")
-    if #items == 0 then
-        print("  (Backpack is empty / ไม่มีไอเทมในกระเป๋าหรือในมือ)")
-    else
-        for i, item in ipairs(items) do
-            local status = item.isEquipped and "[EQUIPPED]" or "[IN BAG]"
-            local tip = (#item.toolTip > 0) and (" (" .. item.toolTip .. ")") or ""
-            print(string.format("  [%d] %s %s | Class: %s%s", i, status, item.name, item.className, tip))
-        end
-    end
-    print("═══════════════════════════════════════════════════════════════")
-    return items
-end
-
-function Utils.equipTool(tool)
-    if not tool or not tool.Parent then return false end
-    local char = Utils.getCharacter()
-    local hum = Utils.getHumanoid()
-    if hum and tool:IsA("Tool") then hum:EquipTool(tool); return true
-    elseif char then tool.Parent = char; return true end
-    return false
-end
-
-function Utils.unequipTool(tool)
-    if not tool or not tool.Parent then return false end
-    local backpack = Utils.getBackpack()
-    local hum = Utils.getHumanoid()
-    if hum then hum:UnequipTools(); return true
-    elseif backpack then tool.Parent = backpack; return true end
-    return false
-end
-
-pcall(function()
-    _G.GetBackpackItems = Utils.getBackpackItems
-    _G.PrintBackpack = Utils.printBackpack
-    _G.ViewBackpack = Utils.printBackpack
-end)
 
 --==================================================
 -- [5] COMPONENT: StabilityComponent
@@ -868,13 +642,15 @@ function PlotComponent.teleportAndDeposit()
 end
 
 --==================================================
--- [9] COMPONENT: ESPComponent (v2.2.0 Enhanced)
+-- [9] COMPONENT: ESPComponent
 --==================================================
 local ESPComponent = {}
 
 function ESPComponent.getColor(eggName)
-    local _, tierColor = Utils.getEggRarity(eggName)
-    if tierColor then return tierColor end
+    local lower = eggName:lower()
+    for _, kw in ipairs(AppConfig.RareKeywords) do
+        if string.find(lower, kw, 1, true) then return AppConfig.ESPRareColor end
+    end
     local hash = 0
     for i = 1, #eggName do hash = hash + string.byte(eggName, i) * (i + 1) end
     local palette = AppConfig.ESPPalette
@@ -883,98 +659,41 @@ end
 
 function ESPComponent.createBillboard(egg)
     local data = StateStore.eggData[egg]
-    if not data then return end
-    if data.NameBillboard and data.NameBillboard.Parent then
-        data.NameBillboard:Destroy()
-    end
-
-    local layout = StateStore.espBillboardLayout or "Detailed"
-    local height
-    if layout == "Minimal" then height = 24
-    elseif layout == "Compact" then height = 42
-    else height = 68 end
-
+    if not data or (data.NameBillboard and data.NameBillboard.Parent) then return end
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "EggESP_Info"
-    billboard.Size = UDim2.new(0, 200, 0, height)
+    billboard.Size = UDim2.new(0, 180, 0, 42)
     billboard.StudsOffset = Vector3.new(0, 3.5, 0)
     billboard.AlwaysOnTop = true
-    billboard.MaxDistance = StateStore.espMaxRenderDistance or AppConfig.ESPMaxRenderDistance
+    billboard.MaxDistance = 2500
     billboard.Enabled = false
     billboard.Parent = egg
 
     local eggColor = ESPComponent.getColor(egg.Name)
-    local rarityLabel, rarityColor, rarityPrefix = Utils.getEggRarity(egg.Name)
-
-    local y = 0
-
-    if StateStore.espShowRarityTag and rarityLabel and layout ~= "Minimal" then
-        local tag = Instance.new("TextLabel")
-        tag.Name = "RarityTag"
-        tag.Size = UDim2.new(1, 0, 0, 14)
-        tag.Position = UDim2.new(0, 0, 0, y)
-        tag.BackgroundTransparency = 1
-        tag.Text = string.format("%s %s", rarityPrefix or "", rarityLabel)
-        tag.TextColor3 = rarityColor or eggColor
-        tag.TextStrokeTransparency = 0.3
-        tag.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-        tag.TextSize = 9
-        tag.Font = Enum.Font.GothamBold
-        tag.Parent = billboard
-        y = y + 14
-    end
-
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Name = "EggName"
-    nameLabel.Size = UDim2.new(1, 0, 0, layout == "Minimal" and 24 or 18)
-    nameLabel.Position = UDim2.new(0, 0, 0, y)
+    nameLabel.Size = UDim2.new(1, 0, 0, 20)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Text = egg.Name
     nameLabel.TextColor3 = eggColor
     nameLabel.TextStrokeTransparency = 0.2
     nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-    nameLabel.TextSize = layout == "Minimal" and 13 or AppConfig.ESPNameSize
+    nameLabel.TextSize = AppConfig.ESPNameSize
     nameLabel.Font = Enum.Font.GothamBold
     nameLabel.Parent = billboard
-    y = y + (layout == "Minimal" and 24 or 18)
 
-    if layout == "Minimal" then
-        data.NameBillboard = billboard
-        return
-    end
-
-    if StateStore.espShowWeight then
-        local wLabel = Instance.new("TextLabel")
-        wLabel.Name = "Weight"
-        wLabel.Size = UDim2.new(1, 0, 0, 14)
-        wLabel.Position = UDim2.new(0, 0, 0, y)
-        wLabel.BackgroundTransparency = 1
-        local kg = Utils.getEggWeight(egg)
-        wLabel.Text = "⚖️ " .. Utils.formatWeight(kg)
-        wLabel.TextColor3 = AppConfig.AccentGold
-        wLabel.TextStrokeTransparency = 0.35
-        wLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-        wLabel.TextSize = 10
-        wLabel.Font = Enum.Font.GothamMedium
-        wLabel.Parent = billboard
-        y = y + 14
-    end
-
-    if StateStore.espShowDistance then
-        local dLabel = Instance.new("TextLabel")
-        dLabel.Name = "Distance"
-        dLabel.Size = UDim2.new(1, 0, 0, 14)
-        dLabel.Position = UDim2.new(0, 0, 0, y)
-        dLabel.BackgroundTransparency = 1
-        dLabel.Text = "0"
-        dLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
-        dLabel.TextStrokeTransparency = 0.4
-        dLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-        dLabel.TextSize = 10
-        dLabel.Font = Enum.Font.GothamMedium
-        dLabel.Parent = billboard
-    end
-
+    local distLabel = Instance.new("TextLabel")
+    distLabel.Name = "Distance"
+    distLabel.Size = UDim2.new(1, 0, 0, 16)
+    distLabel.Position = UDim2.new(0, 0, 0, 19)
+    distLabel.BackgroundTransparency = 1
+    distLabel.Text = "0 studs"
+    distLabel.TextColor3 = Color3.fromRGB(220, 225, 235)
+    distLabel.TextStrokeTransparency = 0.4
+    distLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    distLabel.TextSize = AppConfig.ESPDistanceSize
+    distLabel.Font = Enum.Font.GothamMedium
+    distLabel.Parent = billboard
     data.NameBillboard = billboard
 end
 
@@ -982,56 +701,17 @@ function ESPComponent.updateBillboard(egg)
     local data = StateStore.eggData[egg]
     if not data or not data.NameBillboard or not data.NameBillboard.Parent then return end
     local billboard = data.NameBillboard
-
     local nameLabel = billboard:FindFirstChild("EggName")
+    local distLabel = billboard:FindFirstChild("Distance")
     if nameLabel then nameLabel.Text = egg.Name end
-
-    local wLabel = billboard:FindFirstChild("Weight")
-    if wLabel then
-        wLabel.Text = "⚖️ " .. Utils.formatWeight(Utils.getEggWeight(egg))
-    end
-
-    local dLabel = billboard:FindFirstChild("Distance")
-    if dLabel then
+    if distLabel then
         local d = Utils.getDistanceToTarget(egg)
-        local distStr = Utils.formatDistance(d)
-        if StateStore.espShowCompass then
-            local root = Utils.getRootPart()
-            local targetPos = Utils.getTargetPosition(egg)
-            local bearing = (root and targetPos) and Utils.getCompassBearing(root.Position, targetPos) or ""
-            dLabel.Text = string.format("%s  %s", distStr, bearing)
-        else
-            dLabel.Text = distStr
-        end
+        distLabel.Text = (d == math.huge) and "?" or string.format("%d studs", math.floor(d + 0.5))
     end
 end
 
 function ESPComponent.updateEgg(egg)
     if not Utils.isValidEgg(egg) then return end
-
-    local isPinned = StateStore.pinnedEggs[egg]
-
-    if StateStore.espRareOnly and not isPinned and not Utils.isRareEgg(egg.Name) then
-        local data = StateStore.eggData[egg]
-        if data then
-            if data.Highlight then data.Highlight.Enabled = false end
-            if data.NameBillboard then data.NameBillboard.Enabled = false end
-        end
-        return
-    end
-
-    local dist = Utils.getDistanceToTarget(egg)
-    local maxDist = StateStore.espMaxRenderDistance or AppConfig.ESPMaxRenderDistance
-    local inRange = (dist == math.huge) or (dist <= maxDist)
-    if not inRange and not isPinned then
-        local data = StateStore.eggData[egg]
-        if data then
-            if data.Highlight then data.Highlight.Enabled = false end
-            if data.NameBillboard then data.NameBillboard.Enabled = false end
-        end
-        return
-    end
-
     if not StateStore.eggData[egg] then
         StateStore.eggData[egg] = {
             Highlight = nil, NameBillboard = nil,
@@ -1041,37 +721,24 @@ function ESPComponent.updateEgg(egg)
     end
     local data = StateStore.eggData[egg]
     local eggColor = ESPComponent.getColor(egg.Name)
-    local shouldShow = data.CustomActive or isPinned or StateStore.mainESPActive
-    local color = (data.CustomActive or isPinned) and (data.CustomColor or eggColor) or eggColor
+    local shouldShow = data.CustomActive or StateStore.mainESPActive
+    local color = data.CustomActive and (data.CustomColor or eggColor) or eggColor
 
     if shouldShow then
         if not data.Highlight or not data.Highlight.Parent then
             local highlight = Instance.new("Highlight")
             highlight.Name = "EggESP_Highlight"
             highlight.Adornee = egg
+            highlight.FillTransparency = AppConfig.ESPFillTransparency
+            highlight.OutlineTransparency = AppConfig.ESPOutlineTransparency
             highlight.Parent = egg
             data.Highlight = highlight
         end
-
-        local style = StateStore.espStyle or AppConfig.ESPESPStyle
-        if style == "Fill" then
-            data.Highlight.FillTransparency = AppConfig.ESPFillTransparency
-            data.Highlight.OutlineTransparency = 1
-        elseif style == "Outline" then
-            data.Highlight.FillTransparency = 1
-            data.Highlight.OutlineTransparency = AppConfig.ESPOutlineTransparency
-        else
-            data.Highlight.FillTransparency = AppConfig.ESPFillTransparency
-            data.Highlight.OutlineTransparency = AppConfig.ESPOutlineTransparency
-        end
-
         data.Highlight.FillColor = color
         data.Highlight.OutlineColor = color
         data.Highlight.Enabled = true
-
         ESPComponent.createBillboard(egg)
         if data.NameBillboard then
-            data.NameBillboard.MaxDistance = maxDist
             data.NameBillboard.Enabled = true
             ESPComponent.updateBillboard(egg)
         end
@@ -1096,7 +763,6 @@ function ESPComponent.removeEgg(egg)
     end
     StateStore.autoFarmProcessed[egg] = nil
     StateStore.eggCooldowns[egg] = nil
-    StateStore.pinnedEggs[egg] = nil
 end
 
 function ESPComponent.bindEggLifecycle(egg)
@@ -1107,37 +773,6 @@ function ESPComponent.bindEggLifecycle(egg)
         if conn then pcall(function() conn:Disconnect() end) end
     end)
     StateStore.track(conn)
-end
-
--- [v2.2.0] Pin toggle
-function ESPComponent.togglePin(egg)
-    if not egg then return end
-    if StateStore.pinnedEggs[egg] then
-        StateStore.pinnedEggs[egg] = nil
-    else
-        StateStore.pinnedEggs[egg] = true
-    end
-    ESPComponent.updateEgg(egg)
-end
-
--- [v2.2.0] Rebuild all billboards (settings change)
-function ESPComponent.refreshAllBillboards()
-    for egg, data in pairs(StateStore.eggData) do
-        if egg and egg.Parent and data.NameBillboard then
-            data.NameBillboard:Destroy()
-            data.NameBillboard = nil
-        end
-    end
-    ESPComponent.updateAll()
-end
-
--- [v2.2.0] Re-evaluate all eggs (filter/distance/style change)
-function ESPComponent.reapplySettings()
-    local folder = ServiceManager.RenderedEggsFolder
-    if not folder then return end
-    for _, egg in ipairs(folder:GetChildren()) do
-        ESPComponent.updateEgg(egg)
-    end
 end
 
 --==================================================
@@ -1581,6 +1216,7 @@ function UIComponent.styleInput(textBox, customRadius)
     end)
 end
 
+-- Shared slider drag dispatcher
 local activeSliders = {}
 ServiceManager.UserInputService.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
@@ -1760,12 +1396,14 @@ function UIComponent.mount()
     ScreenGui.Parent = ServiceManager.TargetParent
     StateStore.screenGui = ScreenGui
 
+    -- Cleanup callbacks on destroy
     ScreenGui.Destroying:Connect(function()
         StateStore.onHistoryUpdated = nil
         StateStore.onTimeUpdated = nil
         StateStore.screenGui = nil
     end)
 
+    -- Alert Stack
     local AlertStack = Instance.new("Frame")
     AlertStack.Name = "AlertStack"
     AlertStack.Size = UDim2.new(0, 320, 0, 260)
@@ -1778,7 +1416,9 @@ function UIComponent.mount()
     AlertLayout.Padding = UDim.new(0, 8)
     AlertLayout.Parent = AlertStack
 
-    -- DEVICE SELECTION MODAL
+    -- ══════════════════════════════════════════════════════════════
+    -- DEVICE SELECTION
+    -- ══════════════════════════════════════════════════════════════
     local DeviceFrame = Instance.new("Frame")
     DeviceFrame.Name = "DeviceSelectionFrame"
     DeviceFrame.Size = UDim2.new(0, 340, 0, 170)
@@ -1838,7 +1478,9 @@ function UIComponent.mount()
     MobileBtn.Parent = DeviceInner
     UIComponent.styleButton(MobileBtn, AppConfig.RadiusLG, AppConfig.NestedCardBg)
 
+    -- ══════════════════════════════════════════════════════════════
     -- MAIN WINDOW
+    -- ══════════════════════════════════════════════════════════════
     local MainFrame = Instance.new("Frame")
     MainFrame.Name = "MainFrame"
     MainFrame.Size = UDim2.new(0, AppConfig.PCWidth, 0, AppConfig.PCHeight)
@@ -1852,6 +1494,7 @@ function UIComponent.mount()
     MainFrame.Parent = ScreenGui
     UIComponent.applyCard(MainFrame, AppConfig.Radius2XL, AppConfig.BgColor, AppConfig.CardBorder)
 
+    -- TopBar
     local TopBar = Instance.new("Frame")
     TopBar.Name = "TopBar"
     TopBar.Size = UDim2.new(1, 0, 0, 46)
@@ -1872,7 +1515,7 @@ function UIComponent.mount()
     TitleLabel.Size = UDim2.new(0, 320, 0, 20)
     TitleLabel.Position = UDim2.new(0, 16, 0, 8)
     TitleLabel.BackgroundTransparency = 1
-    TitleLabel.Text = "EGGS ESP  <font color='#00e676'>PRO</font>"
+    TitleLabel.Text = "LuxuryXHUB  <font color='#00e676'>HUB</font>"
     TitleLabel.RichText = true
     TitleLabel.TextColor3 = AppConfig.TextPrimary
     TitleLabel.TextSize = AppConfig.TextTitle
@@ -1884,7 +1527,6 @@ function UIComponent.mount()
     SubLabel.Size = UDim2.new(0, 320, 0, 14)
     SubLabel.Position = UDim2.new(0, 16, 0, 27)
     SubLabel.BackgroundTransparency = 1
-    SubLabel.Text = "v" .. AppConfig.Version .. " • Sidebar Tabs & Nested Cards"
     SubLabel.TextColor3 = AppConfig.TextMuted
     SubLabel.TextSize = AppConfig.TextMicro
     SubLabel.Font = Enum.Font.GothamMedium
@@ -1967,7 +1609,9 @@ function UIComponent.mount()
     MinimizeBtn.Parent = TopBar
     UIComponent.styleButton(MinimizeBtn, AppConfig.RadiusMD, AppConfig.OuterCardBg)
 
+    -- ══════════════════════════════════════════════════════════════
     -- SIDEBAR
+    -- ══════════════════════════════════════════════════════════════
     local Sidebar = Instance.new("Frame")
     Sidebar.Name = "Sidebar"
     Sidebar.Size = UDim2.new(0, AppConfig.SidebarWidth, 1, -58)
@@ -2018,7 +1662,9 @@ function UIComponent.mount()
     FootMobile.Parent = SidebarFooter
     UIComponent.styleButton(FootMobile, AppConfig.RadiusSM, AppConfig.OuterCardBg)
 
+    -- ══════════════════════════════════════════════════════════════
     -- CONTENT AREA
+    -- ══════════════════════════════════════════════════════════════
     local ContentArea = Instance.new("Frame")
     ContentArea.Name = "ContentArea"
     ContentArea.Size = UDim2.new(1, -(AppConfig.SidebarWidth + 20), 1, -58)
@@ -2030,7 +1676,7 @@ function UIComponent.mount()
     local Tabs = {
         { id = "Eggs",     label = "Eggs",       icon = "🥚" },
         { id = "Farm",     label = "Automation", icon = "⚡" },
-        { id = "Backpack", label = "Backpack",   icon = "🎒" },
+        { id = "Time",     label = "Time",       icon = "⏱️" },
         { id = "History",  label = "History",    icon = "📜" },
         { id = "Settings", label = "Settings",   icon = "⚙️" },
     }
@@ -2039,6 +1685,7 @@ function UIComponent.mount()
     local tabPanels = {}
     local currentActiveTab = "Eggs"
 
+    -- Size helper (declared early so minimize/keybind can use it)
     local function currentSize()
         if StateStore.windowMode == "PC" then
             return AppConfig.PCWidth, AppConfig.PCHeight
@@ -2190,10 +1837,11 @@ function UIComponent.mount()
 
     local populateList
     local updateLiveEggsSummary
-    local updateBackpackUI
     local updateHistoryUI
 
+    -- ══════════════════════════════════════════════════════════════
     -- [TAB 1] EGGS
+    -- ══════════════════════════════════════════════════════════════
     local EggsPanel = tabPanels["Eggs"]
 
     local LiveChipsCard = Instance.new("Frame")
@@ -2364,15 +2012,6 @@ function UIComponent.mount()
         ItemFrame.Parent = ScrollList
         UIComponent.applyCard(ItemFrame, AppConfig.RadiusLG, AppConfig.RecessedBg, AppConfig.BorderInner)
 
-        ItemFrame.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton2 and AppConfig.ESPClickToLock then
-                ESPComponent.togglePin(egg)
-                local nowPinned = StateStore.pinnedEggs[egg]
-                updateStatus(nowPinned and ("Pinned: " .. egg.Name) or ("Unpinned: " .. egg.Name),
-                             nowPinned and AppConfig.AccentGold or AppConfig.TextSecondary)
-            end
-        end)
-
         local eggIcon = Instance.new("ImageLabel")
         eggIcon.Size = UDim2.new(0, itemHeight - 10, 0, itemHeight - 10)
         eggIcon.Position = UDim2.new(0, 8, 0.5, -(itemHeight - 10) / 2)
@@ -2382,7 +2021,7 @@ function UIComponent.mount()
         eggIcon.Parent = ItemFrame
 
         local nameLabel = Instance.new("TextLabel")
-        nameLabel.Size = UDim2.new(1, -300, 1, 0)
+        nameLabel.Size = UDim2.new(1, -240, 1, 0)
         nameLabel.Position = UDim2.new(0, itemHeight + 8, 0, 0)
         nameLabel.BackgroundTransparency = 1
         nameLabel.Text = egg.Name
@@ -2392,23 +2031,6 @@ function UIComponent.mount()
         nameLabel.TextXAlignment = Enum.TextXAlignment.Left
         nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
         nameLabel.Parent = ItemFrame
-
-        -- Weight badge
-        local weightBadge = Instance.new("Frame")
-        weightBadge.Size = UDim2.new(0, 60, 0, 20)
-        weightBadge.Position = UDim2.new(1, -284, 0.5, -10)
-        weightBadge.BackgroundColor3 = Color3.fromRGB(36, 30, 20)
-        weightBadge.Parent = ItemFrame
-        UIComponent.applyCard(weightBadge, AppConfig.RadiusSM, Color3.fromRGB(36, 30, 20), AppConfig.AccentGold, 0.6)
-
-        local weightLabel = Instance.new("TextLabel")
-        weightLabel.Size = UDim2.new(1, 0, 1, 0)
-        weightLabel.BackgroundTransparency = 1
-        weightLabel.TextColor3 = AppConfig.AccentGold
-        weightLabel.TextSize = AppConfig.TextCaption
-        weightLabel.Font = Enum.Font.GothamBold
-        weightLabel.Text = "⚖️ " .. Utils.formatWeight(Utils.getEggWeight(egg))
-        weightLabel.Parent = weightBadge
 
         local distBadge = Instance.new("Frame")
         distBadge.Size = UDim2.new(0, 50, 0, 20)
@@ -2424,7 +2046,7 @@ function UIComponent.mount()
         distLabel.TextSize = AppConfig.TextCaption
         distLabel.Font = Enum.Font.Gotham
         local dist = Utils.getDistanceToTarget(egg)
-        distLabel.Text = Utils.formatDistance(dist)
+        distLabel.Text = (dist ~= math.huge) and string.format("%dst", math.floor(dist + 0.5)) or "--"
         distLabel.Parent = distBadge
 
         local TPBtn = Instance.new("TextButton")
@@ -2535,6 +2157,7 @@ function UIComponent.mount()
         local savedPos = ScrollList.CanvasPosition
         local folder = ServiceManager.RenderedEggsFolder
 
+        -- Always update the count label
         if not folder then
             EggCountLabel.Text = "0/0"
             for egg, row in pairs(renderedEggRows) do
@@ -2549,25 +2172,11 @@ function UIComponent.mount()
             if Utils.isValidEgg(egg) then table.insert(found, egg) end
         end
 
-        -- Primary sort
-        if StateStore.sortByWeight then
-            table.sort(found, function(a, b)
-                local wa = Utils.getEggWeight(a) or 0
-                local wb = Utils.getEggWeight(b) or 0
-                return wa > wb
-            end)
-        elseif StateStore.sortMode == "Distance" then
+        if StateStore.sortMode == "Distance" then
             table.sort(found, function(a, b) return Utils.getDistanceToTarget(a) < Utils.getDistanceToTarget(b) end)
         else
             table.sort(found, function(a, b) return a.Name:lower() < b.Name:lower() end)
         end
-
-        -- Pinned eggs always first
-        table.sort(found, function(a, b)
-            local pa = StateStore.pinnedEggs[a] and 1 or 0
-            local pb = StateStore.pinnedEggs[b] and 1 or 0
-            return pa > pb
-        end)
 
         local query = StateStore.currentSearchQuery:lower()
         local visible = {}
@@ -2735,15 +2344,9 @@ function UIComponent.mount()
     SortBtn.MouseButton1Click:Connect(function()
         if StateStore.sortMode == "Name" then
             StateStore.sortMode = "Distance"
-            StateStore.sortByWeight = false
             SortBtn.Text = "Sort: Dist"
-        elseif StateStore.sortMode == "Distance" then
-            StateStore.sortMode = "Name"
-            StateStore.sortByWeight = true
-            SortBtn.Text = "Sort: Weight"
         else
             StateStore.sortMode = "Name"
-            StateStore.sortByWeight = false
             SortBtn.Text = "Sort: Name"
         end
         populateList()
@@ -2766,7 +2369,9 @@ function UIComponent.mount()
         populateList()
     end)
 
+    -- ══════════════════════════════════════════════════════════════
     -- [TAB 2] AUTOMATION
+    -- ══════════════════════════════════════════════════════════════
     local FarmPanel = tabPanels["Farm"]
 
     local FarmScroll = Instance.new("ScrollingFrame")
@@ -3015,310 +2620,300 @@ function UIComponent.mount()
         end
     end)
 
-    -- [v2.2.0] ESP DISPLAY SETTINGS CARD
-    local ESPSettingsCard = Instance.new("Frame")
-    ESPSettingsCard.Size = UDim2.new(1, -4, 0, 316)
-    ESPSettingsCard.LayoutOrder = 7
-    ESPSettingsCard.BackgroundColor3 = AppConfig.NestedCardBg
-    ESPSettingsCard.Parent = FarmScroll
-    UIComponent.applyCard(ESPSettingsCard, AppConfig.RadiusXL, AppConfig.NestedCardBg, AppConfig.BorderInner)
+    -- ══════════════════════════════════════════════════════════════
+    -- [TAB 3] TIME & SESSION MONITOR (replaces Backpack)
+    -- ══════════════════════════════════════════════════════════════
+    local TimePanel = tabPanels["Time"]
 
-    local EspTitle = Instance.new("TextLabel")
-    EspTitle.Size = UDim2.new(1, -20, 0, 20)
-    EspTitle.Position = UDim2.new(0, 14, 0, 8)
-    EspTitle.BackgroundTransparency = 1
-    EspTitle.Text = "👁️  ESP Display Settings"
-    EspTitle.TextColor3 = AppConfig.TextPrimary
-    EspTitle.TextSize = AppConfig.TextHeader
-    EspTitle.Font = Enum.Font.GothamBold
-    EspTitle.TextXAlignment = Enum.TextXAlignment.Left
-    EspTitle.Parent = ESPSettingsCard
+    local TimeScroll = Instance.new("ScrollingFrame")
+    TimeScroll.Size = UDim2.new(1, 0, 1, 0)
+    TimeScroll.BackgroundTransparency = 1
+    TimeScroll.BorderSizePixel = 0
+    TimeScroll.ScrollBarThickness = 3
+    TimeScroll.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 60)
+    TimeScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    TimeScroll.Parent = TimePanel
 
-    local showWeightToggle = UIComponent.createToggle(ESPSettingsCard, "Show Weight (kg)", "แสดงน้ำหนักไข่บนบิลบอร์ด", StateStore.espShowWeight, function(v)
-        StateStore.espShowWeight = v
-        ESPComponent.refreshAllBillboards()
-    end)
-    showWeightToggle.Position = UDim2.new(0, 4, 0, 32)
-    showWeightToggle.Size = UDim2.new(1, -8, 0, 48)
+    local TimeScrollLayout = Instance.new("UIListLayout")
+    TimeScrollLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    TimeScrollLayout.Padding = UDim.new(0, 8)
+    TimeScrollLayout.Parent = TimeScroll
 
-    local showDistToggle = UIComponent.createToggle(ESPSettingsCard, "Show Distance + Compass", "แสดงระยะทางและทิศทาง", StateStore.espShowDistance, function(v)
-        StateStore.espShowDistance = v
-        ESPComponent.refreshAllBillboards()
-    end)
-    showDistToggle.Position = UDim2.new(0, 4, 0, 84)
-    showDistToggle.Size = UDim2.new(1, -8, 0, 48)
-
-    local rareOnlyToggle = UIComponent.createToggle(ESPSettingsCard, "Rare Eggs Only", "แสดงเฉพาะไข่หายาก", StateStore.espRareOnly, function(v)
-        StateStore.espRareOnly = v
-        ESPComponent.reapplySettings()
-    end)
-    rareOnlyToggle.Position = UDim2.new(0, 4, 0, 136)
-    rareOnlyToggle.Size = UDim2.new(1, -8, 0, 48)
-
-    local compassToggle = UIComponent.createToggle(ESPSettingsCard, "Show Compass Bearing", "แสดงทิศทาง (N/NE/E/...)", StateStore.espShowCompass, function(v)
-        StateStore.espShowCompass = v
-        ESPComponent.refreshAllBillboards()
-    end)
-    compassToggle.Position = UDim2.new(0, 4, 0, 188)
-    compassToggle.Size = UDim2.new(1, -8, 0, 48)
-
-    local maxDistSlider = UIComponent.createSlider(ESPSettingsCard, "Max ESP Render Distance", 50, 2000, StateStore.espMaxRenderDistance, "studs", function(v)
-        StateStore.espMaxRenderDistance = v
-        ESPComponent.reapplySettings()
-    end)
-    maxDistSlider.Position = UDim2.new(0, 4, 0, 240)
-    maxDistSlider.Size = UDim2.new(1, -8, 0, 60)
-
-    -- [TAB 3] BACKPACK
-    local BackpackPanel = tabPanels["Backpack"]
-
-    local BpToolbarCard = Instance.new("Frame")
-    BpToolbarCard.Size = UDim2.new(1, 0, 0, 46)
-    BpToolbarCard.BackgroundColor3 = AppConfig.NestedCardBg
-    BpToolbarCard.Parent = BackpackPanel
-    UIComponent.applyCard(BpToolbarCard, AppConfig.RadiusXL, AppConfig.NestedCardBg, AppConfig.BorderInner)
-
-    local BackpackCountBadge = Instance.new("TextLabel")
-    BackpackCountBadge.Size = UDim2.new(0, 120, 1, 0)
-    BackpackCountBadge.Position = UDim2.new(0, 14, 0, 0)
-    BackpackCountBadge.BackgroundTransparency = 1
-    BackpackCountBadge.Text = "🎒 Items: (0)"
-    BackpackCountBadge.TextColor3 = AppConfig.AccentBlue
-    BackpackCountBadge.TextSize = AppConfig.TextHeader
-    BackpackCountBadge.Font = Enum.Font.GothamBold
-    BackpackCountBadge.TextXAlignment = Enum.TextXAlignment.Left
-    BackpackCountBadge.Parent = BpToolbarCard
-
-    local BpSearchBoxContainer = Instance.new("Frame")
-    BpSearchBoxContainer.Size = UDim2.new(1, -230, 0, 28)
-    BpSearchBoxContainer.Position = UDim2.new(0, 134, 0.5, -14)
-    BpSearchBoxContainer.BackgroundColor3 = AppConfig.RecessedBg
-    BpSearchBoxContainer.Parent = BpToolbarCard
-    UIComponent.applyCard(BpSearchBoxContainer, AppConfig.RadiusMD, AppConfig.RecessedBg, AppConfig.BorderInner)
-
-    local BackpackSearchBox = Instance.new("TextBox")
-    BackpackSearchBox.Size = UDim2.new(1, -26, 1, 0)
-    BackpackSearchBox.Position = UDim2.new(0, 10, 0, 0)
-    BackpackSearchBox.BackgroundTransparency = 1
-    BackpackSearchBox.PlaceholderText = "🔍 Search backpack..."
-    BackpackSearchBox.PlaceholderColor3 = AppConfig.TextMuted
-    BackpackSearchBox.Text = ""
-    BackpackSearchBox.TextColor3 = AppConfig.TextPrimary
-    BackpackSearchBox.TextSize = AppConfig.TextCaption
-    BackpackSearchBox.Font = Enum.Font.GothamMedium
-    BackpackSearchBox.TextXAlignment = Enum.TextXAlignment.Left
-    BackpackSearchBox.ClearTextOnFocus = false
-    BackpackSearchBox.Parent = BpSearchBoxContainer
-
-    local BpClearSearchBtn = Instance.new("TextButton")
-    BpClearSearchBtn.Size = UDim2.new(0, 22, 0, 22)
-    BpClearSearchBtn.Position = UDim2.new(1, -24, 0.5, -11)
-    BpClearSearchBtn.BackgroundTransparency = 1
-    BpClearSearchBtn.Text = "✕"
-    BpClearSearchBtn.TextColor3 = AppConfig.TextMuted
-    BpClearSearchBtn.TextSize = 10
-    BpClearSearchBtn.Font = Enum.Font.GothamBold
-    BpClearSearchBtn.Visible = false
-    BpClearSearchBtn.Parent = BpSearchBoxContainer
-
-    local PrintBackpackBtn = Instance.new("TextButton")
-    PrintBackpackBtn.Size = UDim2.new(0, 76, 0, 28)
-    PrintBackpackBtn.Position = UDim2.new(1, -86, 0.5, -14)
-    PrintBackpackBtn.BackgroundColor3 = AppConfig.RecessedBg
-    PrintBackpackBtn.Text = "Dump Log"
-    PrintBackpackBtn.TextColor3 = AppConfig.AccentBlue
-    PrintBackpackBtn.TextSize = AppConfig.TextCaption
-    PrintBackpackBtn.Font = Enum.Font.GothamBold
-    PrintBackpackBtn.Parent = BpToolbarCard
-    UIComponent.styleButton(PrintBackpackBtn, AppConfig.RadiusMD, AppConfig.RecessedBg)
-
-    local BpListCard = Instance.new("Frame")
-    BpListCard.Size = UDim2.new(1, 0, 1, -54)
-    BpListCard.Position = UDim2.new(0, 0, 0, 54)
-    BpListCard.BackgroundColor3 = AppConfig.NestedCardBg
-    BpListCard.Parent = BackpackPanel
-    UIComponent.applyCard(BpListCard, AppConfig.RadiusXL, AppConfig.NestedCardBg, AppConfig.BorderInner)
-
-    local BackpackScroll = Instance.new("ScrollingFrame")
-    BackpackScroll.Size = UDim2.new(1, -16, 1, -16)
-    BackpackScroll.Position = UDim2.new(0, 8, 0, 8)
-    BackpackScroll.BackgroundTransparency = 1
-    BackpackScroll.BorderSizePixel = 0
-    BackpackScroll.ScrollBarThickness = 3
-    BackpackScroll.ScrollBarImageColor3 = Color3.fromRGB(60, 60, 60)
-    BackpackScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    BackpackScroll.Parent = BpListCard
-
-    local BackpackLayout = Instance.new("UIListLayout")
-    BackpackLayout.SortOrder = Enum.SortOrder.LayoutOrder
-    BackpackLayout.Padding = UDim.new(0, 4)
-    BackpackLayout.Parent = BackpackScroll
-
-    BackpackLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        BackpackScroll.CanvasSize = UDim2.new(0, 0, 0, BackpackLayout.AbsoluteContentSize.Y + 6)
+    TimeScrollLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        TimeScroll.CanvasSize = UDim2.new(0, 0, 0, TimeScrollLayout.AbsoluteContentSize.Y + 12)
     end)
 
-    updateBackpackUI = function()
-        for _, child in ipairs(BackpackScroll:GetChildren()) do
-            if child ~= BackpackLayout then child:Destroy() end
+    -- Header card
+    local TimeHeaderCard = Instance.new("Frame")
+    TimeHeaderCard.Size = UDim2.new(1, -4, 0, 56)
+    TimeHeaderCard.LayoutOrder = 1
+    TimeHeaderCard.BackgroundColor3 = AppConfig.NestedCardBg
+    TimeHeaderCard.Parent = TimeScroll
+    UIComponent.applyCard(TimeHeaderCard, AppConfig.RadiusXL, AppConfig.NestedCardBg, AppConfig.AccentBlue, 0.55)
+
+    local TimeHeaderTitle = Instance.new("TextLabel")
+    TimeHeaderTitle.Size = UDim2.new(1, -20, 0, 20)
+    TimeHeaderTitle.Position = UDim2.new(0, 14, 0, 8)
+    TimeHeaderTitle.BackgroundTransparency = 1
+    TimeHeaderTitle.Text = "⏱️  Time & Session Monitor"
+    TimeHeaderTitle.TextColor3 = AppConfig.AccentBlue
+    TimeHeaderTitle.TextSize = AppConfig.TextHeader
+    TimeHeaderTitle.Font = Enum.Font.GothamBold
+    TimeHeaderTitle.TextXAlignment = Enum.TextXAlignment.Left
+    TimeHeaderTitle.Parent = TimeHeaderCard
+
+    local TimeHeaderSub = Instance.new("TextLabel")
+    TimeHeaderSub.Size = UDim2.new(1, -20, 0, 16)
+    TimeHeaderSub.Position = UDim2.new(0, 14, 0, 30)
+    TimeHeaderSub.BackgroundTransparency = 1
+    TimeHeaderSub.Text = "Real-time clock • uptime • throughput"
+    TimeHeaderSub.TextColor3 = AppConfig.TextMuted
+    TimeHeaderSub.TextSize = AppConfig.TextCaption
+    TimeHeaderSub.Font = Enum.Font.GothamMedium
+    TimeHeaderSub.TextXAlignment = Enum.TextXAlignment.Left
+    TimeHeaderSub.Parent = TimeHeaderCard
+
+    -- Big current time display card
+    local BigClockCard = Instance.new("Frame")
+    BigClockCard.Size = UDim2.new(1, -4, 0, 92)
+    BigClockCard.LayoutOrder = 2
+    BigClockCard.BackgroundColor3 = AppConfig.RecessedBg
+    BigClockCard.Parent = TimeScroll
+    UIComponent.applyCard(BigClockCard, AppConfig.RadiusXL, AppConfig.RecessedBg, AppConfig.BorderInner)
+
+    local BigClockLabel = Instance.new("TextLabel")
+    BigClockLabel.Name = "BigClockLabel"
+    BigClockLabel.Size = UDim2.new(1, -20, 0, 44)
+    BigClockLabel.Position = UDim2.new(0, 10, 0, 12)
+    BigClockLabel.BackgroundTransparency = 1
+    BigClockLabel.Text = os.date("%H:%M:%S")
+    BigClockLabel.TextColor3 = AppConfig.AccentBlue
+    BigClockLabel.TextSize = 34
+    BigClockLabel.Font = Enum.Font.GothamBold
+    BigClockLabel.TextXAlignment = Enum.TextXAlignment.Center
+    BigClockLabel.Parent = BigClockCard
+
+    local BigDateLabel = Instance.new("TextLabel")
+    BigDateLabel.Name = "BigDateLabel"
+    BigDateLabel.Size = UDim2.new(1, -20, 0, 20)
+    BigDateLabel.Position = UDim2.new(0, 10, 0, 60)
+    BigDateLabel.BackgroundTransparency = 1
+    BigDateLabel.Text = os.date("%A, %B %d, %Y")
+    BigDateLabel.TextColor3 = AppConfig.TextSecondary
+    BigDateLabel.TextSize = AppConfig.TextBody
+    BigDateLabel.Font = Enum.Font.GothamMedium
+    BigDateLabel.TextXAlignment = Enum.TextXAlignment.Center
+    BigDateLabel.Parent = BigClockCard
+
+    -- Session stats card (rows)
+    local SessionStatsCard = Instance.new("Frame")
+    SessionStatsCard.Size = UDim2.new(1, -4, 0, 150)
+    SessionStatsCard.LayoutOrder = 3
+    SessionStatsCard.BackgroundColor3 = AppConfig.NestedCardBg
+    SessionStatsCard.Parent = TimeScroll
+    UIComponent.applyCard(SessionStatsCard, AppConfig.RadiusXL, AppConfig.NestedCardBg, AppConfig.BorderInner)
+
+    local SsTitle = Instance.new("TextLabel")
+    SsTitle.Size = UDim2.new(1, -20, 0, 20)
+    SsTitle.Position = UDim2.new(0, 14, 0, 8)
+    SsTitle.BackgroundTransparency = 1
+    SsTitle.Text = "📊  Session Statistics"
+    SsTitle.TextColor3 = AppConfig.TextPrimary
+    SsTitle.TextSize = AppConfig.TextHeader
+    SsTitle.Font = Enum.Font.GothamBold
+    SsTitle.TextXAlignment = Enum.TextXAlignment.Left
+    SsTitle.Parent = SessionStatsCard
+
+    local SsInner = Instance.new("Frame")
+    SsInner.Size = UDim2.new(1, -20, 0, 106)
+    SsInner.Position = UDim2.new(0, 10, 0, 34)
+    SsInner.BackgroundColor3 = AppConfig.RecessedBg
+    SsInner.Parent = SessionStatsCard
+    UIComponent.applyCard(SsInner, AppConfig.RadiusLG, AppConfig.RecessedBg, AppConfig.BorderInner)
+
+    local function makeStatRow(parent, yPos, icon, title, valueColor)
+        local rowFrame = Instance.new("Frame")
+        rowFrame.Size = UDim2.new(1, 0, 0, 26)
+        rowFrame.Position = UDim2.new(0, 0, 0, yPos)
+        rowFrame.BackgroundTransparency = 1
+        rowFrame.Parent = parent
+
+        local iconLbl = Instance.new("TextLabel")
+        iconLbl.Size = UDim2.new(0, 24, 1, 0)
+        iconLbl.Position = UDim2.new(0, 10, 0, 0)
+        iconLbl.BackgroundTransparency = 1
+        iconLbl.Text = icon
+        iconLbl.TextSize = 12
+        iconLbl.Font = Enum.Font.GothamBold
+        iconLbl.Parent = rowFrame
+
+        local titleLbl = Instance.new("TextLabel")
+        titleLbl.Size = UDim2.new(0.5, 0, 1, 0)
+        titleLbl.Position = UDim2.new(0, 34, 0, 0)
+        titleLbl.BackgroundTransparency = 1
+        titleLbl.Text = title
+        titleLbl.TextColor3 = AppConfig.TextSecondary
+        titleLbl.TextSize = AppConfig.TextCaption
+        titleLbl.Font = Enum.Font.GothamMedium
+        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+        titleLbl.Parent = rowFrame
+
+        local valueLbl = Instance.new("TextLabel")
+        valueLbl.Size = UDim2.new(0.5, -10, 1, 0)
+        valueLbl.Position = UDim2.new(0.5, 0, 0, 0)
+        valueLbl.BackgroundTransparency = 1
+        valueLbl.Text = "--"
+        valueLbl.TextColor3 = valueColor or AppConfig.TextPrimary
+        valueLbl.TextSize = AppConfig.TextBody
+        valueLbl.Font = Enum.Font.GothamBold
+        valueLbl.TextXAlignment = Enum.TextXAlignment.Right
+        valueLbl.Parent = rowFrame
+
+        return valueLbl
+    end
+
+    local TmCurrentTimeValue = makeStatRow(SsInner, 6,  "🕐", "Current Time",    AppConfig.AccentBlue)
+    local TmSessionTimeValue = makeStatRow(SsInner, 32, "⏳", "Session Uptime",  AppConfig.AccentGreen)
+    local TmStartTimeValue   = makeStatRow(SsInner, 58, "📅", "Session Started", AppConfig.TextSecondary)
+    local TmEggsPerMinValue  = makeStatRow(SsInner, 84, "🥚", "Eggs / Minute",   AppConfig.AccentGold)
+
+    TmStartTimeValue.Text = os.date("%H:%M:%S", StateStore.sessionStartTime)
+
+    -- Totals card
+    local TotalsCard = Instance.new("Frame")
+    TotalsCard.Size = UDim2.new(1, -4, 0, 96)
+    TotalsCard.LayoutOrder = 4
+    TotalsCard.BackgroundColor3 = AppConfig.NestedCardBg
+    TotalsCard.Parent = TimeScroll
+    UIComponent.applyCard(TotalsCard, AppConfig.RadiusXL, AppConfig.NestedCardBg, AppConfig.BorderInner)
+
+    local TcTitle = Instance.new("TextLabel")
+    TcTitle.Size = UDim2.new(1, -20, 0, 20)
+    TcTitle.Position = UDim2.new(0, 14, 0, 8)
+    TcTitle.BackgroundTransparency = 1
+    TcTitle.Text = "🥚  Total Collected This Session"
+    TcTitle.TextColor3 = AppConfig.TextPrimary
+    TcTitle.TextSize = AppConfig.TextHeader
+    TcTitle.Font = Enum.Font.GothamBold
+    TcTitle.TextXAlignment = Enum.TextXAlignment.Left
+    TcTitle.Parent = TotalsCard
+
+    local TotalCountLabel = Instance.new("TextLabel")
+    TotalCountLabel.Name = "TotalCountLabel"
+    TotalCountLabel.Size = UDim2.new(0.5, -20, 0, 46)
+    TotalCountLabel.Position = UDim2.new(0, 10, 0, 36)
+    TotalCountLabel.BackgroundTransparency = 1
+    TotalCountLabel.Text = "0"
+    TotalCountLabel.TextColor3 = AppConfig.AccentGold
+    TotalCountLabel.TextSize = 34
+    TotalCountLabel.Font = Enum.Font.GothamBold
+    TotalCountLabel.TextXAlignment = Enum.TextXAlignment.Center
+    TotalCountLabel.Parent = TotalsCard
+
+    local TotalCaptionLabel = Instance.new("TextLabel")
+    TotalCaptionLabel.Size = UDim2.new(0.5, -20, 0, 46)
+    TotalCaptionLabel.Position = UDim2.new(0.5, 10, 0, 36)
+    TotalCaptionLabel.BackgroundTransparency = 1
+    TotalCaptionLabel.Text = "0 rare collected"
+    TotalCaptionLabel.TextColor3 = AppConfig.TextSecondary
+    TotalCaptionLabel.TextSize = AppConfig.TextBody
+    TotalCaptionLabel.Font = Enum.Font.GothamMedium
+    TotalCaptionLabel.TextXAlignment = Enum.TextXAlignment.Center
+    TotalCaptionLabel.Parent = TotalsCard
+
+    -- Controls card
+    local TimeControlsCard = Instance.new("Frame")
+    TimeControlsCard.Size = UDim2.new(1, -4, 0, 76)
+    TimeControlsCard.LayoutOrder = 5
+    TimeControlsCard.BackgroundColor3 = AppConfig.NestedCardBg
+    TimeControlsCard.Parent = TimeScroll
+    UIComponent.applyCard(TimeControlsCard, AppConfig.RadiusXL, AppConfig.NestedCardBg, AppConfig.BorderInner)
+
+    local TctTitle = Instance.new("TextLabel")
+    TctTitle.Size = UDim2.new(1, -20, 0, 20)
+    TctTitle.Position = UDim2.new(0, 14, 0, 8)
+    TctTitle.BackgroundTransparency = 1
+    TctTitle.Text = "Session Controls"
+    TctTitle.TextColor3 = AppConfig.TextPrimary
+    TctTitle.TextSize = AppConfig.TextHeader
+    TctTitle.Font = Enum.Font.GothamBold
+    TctTitle.TextXAlignment = Enum.TextXAlignment.Left
+    TctTitle.Parent = TimeControlsCard
+
+    local ResetSessionBtn = Instance.new("TextButton")
+    ResetSessionBtn.Size = UDim2.new(0.5, -18, 0, 30)
+    ResetSessionBtn.Position = UDim2.new(0, 10, 0, 36)
+    ResetSessionBtn.BackgroundColor3 = AppConfig.RecessedBg
+    ResetSessionBtn.Text = "🔄 Reset Session Timer"
+    ResetSessionBtn.TextColor3 = AppConfig.AccentGreen
+    ResetSessionBtn.TextSize = AppConfig.TextCaption
+    ResetSessionBtn.Font = Enum.Font.GothamBold
+    ResetSessionBtn.Parent = TimeControlsCard
+    UIComponent.styleButton(ResetSessionBtn, AppConfig.RadiusMD, AppConfig.RecessedBg)
+
+    local ResetCountsBtn = Instance.new("TextButton")
+    ResetCountsBtn.Size = UDim2.new(0.5, -18, 0, 30)
+    ResetCountsBtn.Position = UDim2.new(0.5, 8, 0, 36)
+    ResetCountsBtn.BackgroundColor3 = AppConfig.RecessedBg
+    ResetCountsBtn.Text = "🧹 Reset Egg Counters"
+    ResetCountsBtn.TextColor3 = AppConfig.AccentRed
+    ResetCountsBtn.TextSize = AppConfig.TextCaption
+    ResetCountsBtn.Font = Enum.Font.GothamBold
+    ResetCountsBtn.Parent = TimeControlsCard
+    UIComponent.styleButton(ResetCountsBtn, AppConfig.RadiusMD, AppConfig.RecessedBg)
+
+    local function refreshTimeLabels()
+        local now = os.time()
+        local elapsed = now - StateStore.sessionStartTime
+        local h = math.floor(elapsed / 3600)
+        local m = math.floor((elapsed % 3600) / 60)
+        local s = elapsed % 60
+
+        TmCurrentTimeValue.Text = os.date("%H:%M:%S")
+        TmSessionTimeValue.Text = string.format("%02d:%02d:%02d", h, m, s)
+
+        local epm = (elapsed > 0) and string.format("%.1f", StateStore.totalEggsCollected / (elapsed / 60)) or "0.0"
+        TmEggsPerMinValue.Text = epm .. " eggs/min"
+
+        if BigClockLabel and BigClockLabel.Parent then
+            BigClockLabel.Text = os.date("%H:%M:%S")
         end
-
-        local allItems = Utils.getBackpackItems()
-        local query = (StateStore.backpackSearchQuery or ""):lower():match("^%s*(.-)%s*$")
-        local filteredItems = {}
-
-        if query and #query > 0 then
-            for _, it in ipairs(allItems) do
-                if string.find(it.name:lower(), query, 1, true) then
-                    table.insert(filteredItems, it)
-                end
+        if BigDateLabel and BigDateLabel.Parent then
+            BigDateLabel.Text = os.date("%A, %B %d, %Y")
+        end
+        if TotalCountLabel and TotalCountLabel.Parent then
+            TotalCountLabel.Text = tostring(StateStore.totalEggsCollected)
+        end
+        if TotalCaptionLabel and TotalCaptionLabel.Parent then
+            local rareCount = 0
+            for _, rec in ipairs(StateStore.farmHistory) do
+                if rec.isRare then rareCount = rareCount + 1 end
             end
-        else
-            filteredItems = allItems
+            TotalCaptionLabel.Text = rareCount .. " rare collected"
         end
-
-        BackpackCountBadge.Text = string.format("🎒 Items: (%d)", #allItems)
-
-        if #filteredItems == 0 then
-            local emptyLabel = Instance.new("TextLabel")
-            emptyLabel.Size = UDim2.new(1, 0, 0, 40)
-            emptyLabel.BackgroundTransparency = 1
-            emptyLabel.Text = (#allItems == 0) and "Backpack is empty / ไม่มีไอเทม" or "No matching items"
-            emptyLabel.TextColor3 = AppConfig.TextMuted
-            emptyLabel.TextSize = AppConfig.TextBody
-            emptyLabel.Font = Enum.Font.GothamMedium
-            emptyLabel.Parent = BackpackScroll
-            return
-        end
-
-        for _, item in ipairs(filteredItems) do
-            local card = Instance.new("Frame")
-            card.Size = UDim2.new(1, -4, 0, 36)
-            card.BackgroundColor3 = item.isEquipped and Color3.fromRGB(22, 34, 28) or AppConfig.RecessedBg
-            card.Parent = BackpackScroll
-            UIComponent.applyCard(card, AppConfig.RadiusMD, card.BackgroundColor3, item.isEquipped and AppConfig.AccentGreen or AppConfig.BorderInner)
-
-            if item.textureId and #item.textureId > 0 then
-                local icon = Instance.new("ImageLabel")
-                icon.Size = UDim2.new(0, 22, 0, 22)
-                icon.Position = UDim2.new(0, 8, 0.5, -11)
-                icon.BackgroundTransparency = 1
-                icon.Image = item.textureId
-                icon.ScaleType = Enum.ScaleType.Fit
-                icon.Parent = card
-            else
-                local iconFallback = Instance.new("TextLabel")
-                iconFallback.Size = UDim2.new(0, 22, 0, 22)
-                iconFallback.Position = UDim2.new(0, 8, 0.5, -11)
-                iconFallback.BackgroundTransparency = 1
-                iconFallback.Text = item.isEquipped and "⚔️" or "📦"
-                iconFallback.TextSize = 12
-                iconFallback.Font = Enum.Font.GothamBold
-                iconFallback.Parent = card
-            end
-
-            local nameLabel = Instance.new("TextLabel")
-            nameLabel.Size = UDim2.new(1, -160, 1, 0)
-            nameLabel.Position = UDim2.new(0, 36, 0, 0)
-            nameLabel.BackgroundTransparency = 1
-            nameLabel.Text = item.name
-            nameLabel.TextColor3 = item.isEquipped and AppConfig.AccentGreen or AppConfig.TextPrimary
-            nameLabel.TextSize = AppConfig.TextBody
-            nameLabel.Font = Enum.Font.GothamBold
-            nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-            nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-            nameLabel.Parent = card
-
-            local tagLabel = Instance.new("TextLabel")
-            tagLabel.Size = UDim2.new(0, 56, 0, 20)
-            tagLabel.Position = UDim2.new(1, -124, 0.5, -10)
-            tagLabel.BackgroundColor3 = item.isEquipped and Color3.fromRGB(20, 48, 30) or AppConfig.NestedCardBg
-            tagLabel.Text = item.isEquipped and "Equipped" or "In Bag"
-            tagLabel.TextColor3 = item.isEquipped and AppConfig.AccentGreen or AppConfig.TextMuted
-            tagLabel.TextSize = AppConfig.TextMicro
-            tagLabel.Font = Enum.Font.GothamMedium
-            tagLabel.Parent = card
-
-            local tc = Instance.new("UICorner")
-            tc.CornerRadius = UDim.new(0, 4)
-            tc.Parent = tagLabel
-
-            local actBtn = Instance.new("TextButton")
-            actBtn.Size = UDim2.new(0, 60, 0, 24)
-            actBtn.Position = UDim2.new(1, -64, 0.5, -12)
-            local actBg = item.isEquipped and AppConfig.NestedCardBg or AppConfig.AccentGreen
-            actBtn.BackgroundColor3 = actBg
-            actBtn.Text = item.isEquipped and "Unequip" or "Equip"
-            actBtn.TextColor3 = item.isEquipped and AppConfig.TextSecondary or Color3.fromRGB(10, 20, 15)
-            actBtn.TextSize = AppConfig.TextCaption
-            actBtn.Font = Enum.Font.GothamBold
-            actBtn.Parent = card
-            UIComponent.styleButton(actBtn, AppConfig.RadiusSM, actBg)
-
-            actBtn.MouseButton1Click:Connect(function()
-                if item.isEquipped then Utils.unequipTool(item.instance)
-                else Utils.equipTool(item.instance) end
-                task.wait(0.08)
-                updateBackpackUI()
-            end)
+        if ClockLabel and ClockLabel.Parent then
+            ClockLabel.Text = os.date("%H:%M:%S")
         end
     end
+    StateStore.onTimeUpdated = refreshTimeLabels
+    refreshTimeLabels()
 
-    BackpackSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-        local newQuery = BackpackSearchBox.Text:match("^%s*(.-)%s*$") or ""
-        BpClearSearchBtn.Visible = (#newQuery > 0)
-        if newQuery == StateStore.backpackSearchQuery then return end
-        StateStore.backpackSearchQuery = newQuery
-        updateBackpackUI()
+    ResetSessionBtn.MouseButton1Click:Connect(function()
+        StateStore.sessionStartTime = os.time()
+        TmStartTimeValue.Text = os.date("%H:%M:%S", StateStore.sessionStartTime)
+        refreshTimeLabels()
+        updateStatus("Session timer reset", AppConfig.AccentGreen)
     end)
 
-    BpClearSearchBtn.MouseButton1Click:Connect(function()
-        BackpackSearchBox.Text = ""
-        StateStore.backpackSearchQuery = ""
-        BpClearSearchBtn.Visible = false
-        updateBackpackUI()
+    ResetCountsBtn.MouseButton1Click:Connect(function()
+        StateStore.totalEggsCollected = 0
+        refreshTimeLabels()
+        updateStatus("Egg counters reset", AppConfig.AccentRed)
     end)
 
-    PrintBackpackBtn.MouseButton1Click:Connect(function()
-        Utils.printBackpack()
-        updateStatus("Backpack dumped to console", AppConfig.AccentBlue)
-    end)
-
-    local backpackConnAdded, backpackConnRemoved
-    local charConnAdded, charConnRemoved
-
-    local function bindBackpackListeners()
-        if backpackConnAdded then backpackConnAdded:Disconnect() end
-        if backpackConnRemoved then backpackConnRemoved:Disconnect() end
-        local bp = Utils.getBackpack()
-        if bp then
-            backpackConnAdded = StateStore.track(bp.ChildAdded:Connect(function()
-                if currentActiveTab == "Backpack" then updateBackpackUI() end
-            end))
-            backpackConnRemoved = StateStore.track(bp.ChildRemoved:Connect(function()
-                if currentActiveTab == "Backpack" then updateBackpackUI() end
-            end))
-        end
-    end
-
-    local function bindCharBackpackListeners(char)
-        if charConnAdded then charConnAdded:Disconnect() end
-        if charConnRemoved then charConnRemoved:Disconnect() end
-        if char then
-            charConnAdded = StateStore.track(char.ChildAdded:Connect(function(child)
-                if child:IsA("Tool") and currentActiveTab == "Backpack" then updateBackpackUI() end
-            end))
-            charConnRemoved = StateStore.track(char.ChildRemoved:Connect(function(child)
-                if child:IsA("Tool") and currentActiveTab == "Backpack" then updateBackpackUI() end
-            end))
-        end
-        bindBackpackListeners()
-    end
-
-    bindCharBackpackListeners(Utils.getCharacter())
-    StateStore.track(ServiceManager.LocalPlayer.CharacterAdded:Connect(bindCharBackpackListeners))
-
+    -- ══════════════════════════════════════════════════════════════
     -- [TAB 4] HISTORY
+    -- ══════════════════════════════════════════════════════════════
     local HistoryPanel = tabPanels["History"]
 
     local HistToolbarCard = Instance.new("Frame")
@@ -3440,7 +3035,9 @@ function UIComponent.mount()
         updateStatus("Farm history cleared", AppConfig.AccentRed)
     end)
 
+    -- ══════════════════════════════════════════════════════════════
     -- [TAB 5] SETTINGS
+    -- ══════════════════════════════════════════════════════════════
     local SettingsPanel = tabPanels["Settings"]
 
     local SettingsScroll = Instance.new("ScrollingFrame")
@@ -3536,99 +3133,9 @@ function UIComponent.mount()
         KeybindBtn.TextColor3 = AppConfig.AccentGreen
     end)
 
-    local TimeCard = Instance.new("Frame")
-    TimeCard.Size = UDim2.new(1, -4, 0, 170)
-    TimeCard.LayoutOrder = 3
-    TimeCard.BackgroundColor3 = AppConfig.NestedCardBg
-    TimeCard.Parent = SettingsScroll
-    UIComponent.applyCard(TimeCard, AppConfig.RadiusXL, AppConfig.NestedCardBg, AppConfig.AccentBlue, 0.55)
-
-    local TimeCardTitle = Instance.new("TextLabel")
-    TimeCardTitle.Size = UDim2.new(1, -20, 0, 22)
-    TimeCardTitle.Position = UDim2.new(0, 14, 0, 8)
-    TimeCardTitle.BackgroundTransparency = 1
-    TimeCardTitle.Text = "⏱️  Time & Session Monitor"
-    TimeCardTitle.TextColor3 = AppConfig.AccentBlue
-    TimeCardTitle.TextSize = AppConfig.TextHeader
-    TimeCardTitle.Font = Enum.Font.GothamBold
-    TimeCardTitle.TextXAlignment = Enum.TextXAlignment.Left
-    TimeCardTitle.Parent = TimeCard
-
-    local TimeInnerCard = Instance.new("Frame")
-    TimeInnerCard.Size = UDim2.new(1, -20, 0, 122)
-    TimeInnerCard.Position = UDim2.new(0, 10, 0, 38)
-    TimeInnerCard.BackgroundColor3 = AppConfig.RecessedBg
-    TimeInnerCard.Parent = TimeCard
-    UIComponent.applyCard(TimeInnerCard, AppConfig.RadiusLG, AppConfig.RecessedBg, AppConfig.BorderInner)
-
-    local function makeTimeRow(parent, yPos, icon, title, valueColor)
-        local rowFrame = Instance.new("Frame")
-        rowFrame.Size = UDim2.new(1, 0, 0, 28)
-        rowFrame.Position = UDim2.new(0, 0, 0, yPos)
-        rowFrame.BackgroundTransparency = 1
-        rowFrame.Parent = parent
-
-        local iconLbl = Instance.new("TextLabel")
-        iconLbl.Size = UDim2.new(0, 24, 1, 0)
-        iconLbl.Position = UDim2.new(0, 10, 0, 0)
-        iconLbl.BackgroundTransparency = 1
-        iconLbl.Text = icon
-        iconLbl.TextSize = 12
-        iconLbl.Font = Enum.Font.GothamBold
-        iconLbl.Parent = rowFrame
-
-        local titleLbl = Instance.new("TextLabel")
-        titleLbl.Size = UDim2.new(0.45, 0, 1, 0)
-        titleLbl.Position = UDim2.new(0, 34, 0, 0)
-        titleLbl.BackgroundTransparency = 1
-        titleLbl.Text = title
-        titleLbl.TextColor3 = AppConfig.TextSecondary
-        titleLbl.TextSize = AppConfig.TextCaption
-        titleLbl.Font = Enum.Font.GothamMedium
-        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
-        titleLbl.Parent = rowFrame
-
-        local valueLbl = Instance.new("TextLabel")
-        valueLbl.Size = UDim2.new(0.5, -10, 1, 0)
-        valueLbl.Position = UDim2.new(0.5, 0, 0, 0)
-        valueLbl.BackgroundTransparency = 1
-        valueLbl.Text = "--"
-        valueLbl.TextColor3 = valueColor or AppConfig.TextPrimary
-        valueLbl.TextSize = AppConfig.TextBody
-        valueLbl.Font = Enum.Font.GothamBold
-        valueLbl.TextXAlignment = Enum.TextXAlignment.Right
-        valueLbl.Parent = rowFrame
-
-        return valueLbl
-    end
-
-    local TmCurrentTimeValue = makeTimeRow(TimeInnerCard, 6,  "🕐", "Current Time",   AppConfig.AccentBlue)
-    local TmSessionTimeValue = makeTimeRow(TimeInnerCard, 34, "⏳", "Session Uptime",  AppConfig.AccentGreen)
-    local TmStartTimeValue   = makeTimeRow(TimeInnerCard, 62, "📅", "Session Started", AppConfig.TextSecondary)
-    local TmEggsPerMinValue  = makeTimeRow(TimeInnerCard, 90, "🥚", "Eggs / Minute",  AppConfig.AccentGold)
-
-    TmStartTimeValue.Text = os.date("%H:%M:%S", StateStore.sessionStartTime)
-
-    local function refreshTimeLabels()
-        local now = os.time()
-        local elapsed = now - StateStore.sessionStartTime
-        local h = math.floor(elapsed / 3600)
-        local m = math.floor((elapsed % 3600) / 60)
-        local s = elapsed % 60
-        TmCurrentTimeValue.Text = os.date("%H:%M:%S")
-        TmSessionTimeValue.Text = string.format("%02d:%02d:%02d", h, m, s)
-        local epm = (elapsed > 0) and string.format("%.1f", StateStore.totalEggsCollected / (elapsed / 60)) or "0.0"
-        TmEggsPerMinValue.Text = epm .. " eggs/min"
-        if ClockLabel and ClockLabel.Parent then
-            ClockLabel.Text = os.date("%H:%M:%S")
-        end
-    end
-    StateStore.onTimeUpdated = refreshTimeLabels
-    refreshTimeLabels()
-
     local PlotCard = Instance.new("Frame")
     PlotCard.Size = UDim2.new(1, -4, 0, 76)
-    PlotCard.LayoutOrder = 4
+    PlotCard.LayoutOrder = 3
     PlotCard.BackgroundColor3 = AppConfig.NestedCardBg
     PlotCard.Parent = SettingsScroll
     UIComponent.applyCard(PlotCard, AppConfig.RadiusXL, AppConfig.NestedCardBg, AppConfig.BorderInner)
@@ -3666,7 +3173,9 @@ function UIComponent.mount()
         end
     end)
 
+    -- ══════════════════════════════════════════════════════════════
     -- RARE EGG ALERTS
+    -- ══════════════════════════════════════════════════════════════
     local function showRareAlert(egg)
         if not StateStore.shouldAlert(egg.Name) then return end
 
@@ -3729,8 +3238,7 @@ function UIComponent.mount()
         distLabel.Position = UDim2.new(0, 56, 0, 40)
         distLabel.BackgroundTransparency = 1
         local d = Utils.getDistanceToTarget(egg)
-        local kg = Utils.getEggWeight(egg)
-        distLabel.Text = string.format("📍 %s away • ⚖️ %s", Utils.formatDistance(d), Utils.formatWeight(kg))
+        distLabel.Text = (d ~= math.huge) and string.format("📍 %dst away", math.floor(d + 0.5)) or "📍 Unknown"
         distLabel.TextColor3 = AppConfig.TextSecondary
         distLabel.TextSize = AppConfig.TextCaption
         distLabel.Font = Enum.Font.GothamMedium
@@ -3767,7 +3275,9 @@ function UIComponent.mount()
         end)
     end
 
+    -- ══════════════════════════════════════════════════════════════
     -- DRAGGABLE
+    -- ══════════════════════════════════════════════════════════════
     local dragging = false
     local dragStart = nil
     local startPos = nil
@@ -3799,7 +3309,7 @@ function UIComponent.mount()
         end
     end))
 
-    -- KEYBIND HANDLER
+    -- Keybind handler
     StateStore.track(ServiceManager.UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if StateStore.listeningForKey then
             if input.UserInputType == Enum.UserInputType.Keyboard then
@@ -3813,11 +3323,13 @@ function UIComponent.mount()
         end
         if gameProcessed then return end
 
+        -- Escape: minimize
         if input.KeyCode == Enum.KeyCode.Escape then
             if not StateStore.isMinimized then toggleMinimize() end
             return
         end
 
+        -- Comma / Period: cycle tabs
         if input.KeyCode == Enum.KeyCode.Period then
             local ids = {}
             for _, t in ipairs(Tabs) do table.insert(ids, t.id) end
@@ -3833,12 +3345,15 @@ function UIComponent.mount()
             return
         end
 
+        -- Teleport home
         if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == StateStore.tpKeybind then
             PlotComponent.teleportAndDeposit()
         end
     end))
 
+    -- ══════════════════════════════════════════════════════════════
     -- DEVICE MODE
+    -- ══════════════════════════════════════════════════════════════
     local function applyMode(mode)
         StateStore.windowMode = mode
         StateStore.isMobileMode = (mode == "Mobile")
@@ -3865,7 +3380,9 @@ function UIComponent.mount()
         task.defer(function() applyMode("Mobile") end)
     end
 
+    -- ══════════════════════════════════════════════════════════════
     -- TIME HEARTBEAT
+    -- ══════════════════════════════════════════════════════════════
     local timeTick = 0
     StateStore.track(ServiceManager.RunService.Heartbeat:Connect(function(dt)
         if not (ScreenGui and ScreenGui.Parent) then return end
@@ -3881,17 +3398,16 @@ function UIComponent.mount()
         end
     end))
 
+    -- Initial populate
     task.defer(function()
         populateList()
         updateLiveEggsSummary()
-        updateBackpackUI()
         updateHistoryUI()
     end)
 
     return {
         populateList = populateList,
         updateLiveEggsSummary = updateLiveEggsSummary,
-        updateBackpackUI = updateBackpackUI,
         showRareAlert = showRareAlert,
         ScreenGui = ScreenGui,
     }
@@ -4003,6 +3519,7 @@ local function startApplication()
     StabilityComponent.setupAntiAFK(true)
     StabilityComponent.setupAutoRejoin()
 
+    -- Merge into existing namespace
     local existing = getgenv().EggsESP or {}
     existing.Version = AppConfig.Version
     existing.Config = AppConfig
@@ -4020,14 +3537,11 @@ local function startApplication()
         StartAutoRebirth = RebirthComponent.startAutoRebirth,
         StopAutoRebirth = RebirthComponent.stopAutoRebirth,
         Cleanup = cleanup,
-        GetEggWeight = Utils.getEggWeight,
-        FormatWeight = Utils.formatWeight,
-        TogglePin = ESPComponent.togglePin,
-        RefreshBillboards = ESPComponent.refreshAllBillboards,
     }
     getgenv().EggsESP = existing
 
-    print("[Eggs ESP Pro v" .. AppConfig.Version .. "] Initialized with weight display, rarity tiers & pin system.")
+    print("[Eggs ESP Pro v" .. AppConfig.Version .. "] Initialized successfully.")
 end
 
+-- Run App
 startApplication()
